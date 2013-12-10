@@ -10,6 +10,7 @@
 #[link(name = "png",
        vers = "0.1")];
 #[crate_type = "lib"];
+#[feature(link_args)];
 
 extern mod std;
 use std::cast;
@@ -25,6 +26,7 @@ pub mod ffi;
 #[link_args="-L. -lpng -lz -lshim"]
 extern {}
 
+#[deriving(Eq)]
 pub enum ColorType {
     K1, K2, K4, K8, K16,
     KA8, KA16,
@@ -249,10 +251,12 @@ pub fn store_png(img: &Image, path: &Path) -> Result<(),~str> {
 
 #[cfg(test)]
 mod test {
+    extern mod extra;
+
     use std::io;
     use std::io::File;
     use std::vec;
-    use super::{ffi, load_png, store_png, RGB8, Image};
+    use super::{ffi, load_png, load_png_from_memory, store_png, RGB8, RGBA8, Image};
 
     #[test]
     #[fixed_stack_segment]
@@ -271,10 +275,79 @@ mod test {
         }
     }
 
+    fn load_rgba8(file: &'static str, w: u32, h: u32) {
+        match load_png(&Path::new(file)) {
+            Err(m) => fail!(m),
+            Ok(image) => {
+                assert_eq!(image.color_type, RGBA8);
+                assert_eq!(image.width, w);
+                assert_eq!(image.height, h);
+            }
+        }
+    }
+
     #[test]
     fn test_load() {
-        let res = load_png(&Path::new("test.png"));
-        assert!(res.is_ok());
+        load_rgba8("test.png", 831, 624);
+
+        test_store();
+        load_rgba8("test_store.png", 10, 10);
+    }
+
+    #[test]
+    fn test_load_big_parallel() {
+        // HACK(eddyb) arbitrary values.
+        for _ in range(0, 128) {
+            do spawn {
+                load_rgba8("test.png", 831, 624);
+            }
+        }
+    }
+
+    fn load_rgba8_from_memory(buf: &[u8], w: u32, h: u32) {
+        match load_png_from_memory(buf) {
+            Err(m) => fail!(m),
+            Ok(image) => {
+                assert_eq!(image.color_type, RGBA8);
+                assert_eq!(image.width, w);
+                assert_eq!(image.height, h);
+            }
+        }
+    }
+
+    #[test]
+    fn test_load_big_100() {
+        let mut reader = match File::open_mode(&Path::new("test.png"), io::Open, io::Read) {
+            Some(r) => r,
+            None => fail!("could not open file")
+        };
+        let buf = reader.read_to_end();
+
+        for _ in range(0, 100) {
+            load_rgba8_from_memory(buf, 831, 624);
+        }
+    }
+
+    fn bench_file_rgba(b: &mut extra::test::BenchHarness, file: &'static str, w: u32, h: u32) {
+        let mut reader = match File::open_mode(&Path::new(file), io::Open, io::Read) {
+            Some(r) => r,
+            None => fail!("could not open file")
+        };
+        let buf = reader.read_to_end();
+
+        b.iter(|| load_rgba8_from_memory(buf, w, h));
+        b.bytes = (w * h * 4) as u64;
+    }
+
+    #[bench]
+    fn bench_small(b: &mut extra::test::BenchHarness) {
+        test_store();
+        bench_file_rgba(b, "test_store.png", 10, 10);
+    }
+
+    #[bench]
+    fn bench_big(b: &mut extra::test::BenchHarness) {
+        bench_file_rgba(b, "test.png", 831, 624);
     }
 
     #[test]
