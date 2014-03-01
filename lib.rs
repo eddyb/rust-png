@@ -12,7 +12,6 @@
 #[cfg(test)]
 extern mod extra;
 
-extern mod std;
 use std::cast;
 use std::io;
 use std::io::File;
@@ -47,6 +46,7 @@ struct ImageData<'a> {
 }
 
 pub fn is_png(image: &[u8]) -> bool {
+    assert!(image.len() >= 8);
     unsafe {
         ffi::png_sig_cmp(image.as_ptr(), 0, 8) == 0
     }
@@ -245,7 +245,7 @@ mod test {
     use std::io::File;
     use std::vec;
 
-    use super::{ffi, load_png, load_png_from_memory, store_png};
+    use super::{is_png, load_png, load_png_from_memory, store_png};
     use super::{ColorType, RGB8, RGBA8, KA8, Image};
 
     #[test]
@@ -258,11 +258,7 @@ mod test {
 
         let mut buf = vec::from_elem(1024, 0u8);
         let count = reader.read(buf.mut_slice(0, 1024)).unwrap();
-        assert!(count >= 8);
-        unsafe {
-            let res = ffi::png_sig_cmp(buf.as_ptr(), 0, 8);
-            assert!(res == 0);
-        }
+        assert!(is_png(buf.slice_to(count)));
     }
 
     fn load_rgba8(file: &'static str, w: u32, h: u32) {
@@ -305,6 +301,8 @@ mod test {
 
     #[test]
     fn test_load_perf() {
+        test_store();
+        bench_file_from_memory("test/store.png", 10, 10, RGBA8);
         bench_file_from_memory("test/servo-screenshot.png", 831, 624, RGBA8);
         bench_file_from_memory("test/mozilla-dinosaur-head-logo.png", 1300, 929, RGBA8);
         bench_file_from_memory("test/rust-huge-logo.png", 4000, 4000, KA8);
